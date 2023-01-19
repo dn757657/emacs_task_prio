@@ -1,3 +1,4 @@
+import numpy as np
 import orgparse
 import orgparse.node
 import pandas as pd
@@ -241,8 +242,7 @@ def process(nodes, node_stats, min_real_tasks_level=2):
                                              effort,
                                              scheduled,
                                              datelist,
-                                             rangelist,
-                                             created]],
+                                             rangelist]],
                                       columns=node_stats.columns.tolist())
 
         node_stats = pd.concat([node_stats_new, node_stats], ignore_index=True)
@@ -251,51 +251,19 @@ def process(nodes, node_stats, min_real_tasks_level=2):
 
 
 def remove_created_dates(nodes_df):
-    """ expand datelist (create new entries) """
+    """ remove created dates from datelist and move to own column """
 
-    # cant change index while iterating
-    delete_nodes = list()
-    insert_nodes = list()
-
-    # parse datelist - past dates in the past are always created date? not sure
-    # get node by index as df
-    # create new entries based on datelist
-    # delete original entry
+    if 'created' not in nodes_df.columns:
+        nodes_df['created'] = np.nan
 
     for index in range(len(nodes_df)):
-        # node = nodes_df.loc[[index]]
         datelist = nodes_df.loc[index, 'datelist']
-
-        # drop old node
-        # delete_nodes.append(index)
 
         if len(datelist) > 0:
             for org_date in datelist:
-
-                # new_node = node
-
-                # if in the past and not repeated then its created date?
                 if convert_org_parse_date_2_datetime(org_date) < datetime.datetime.today() and not org_date._repeater:
-                    # set up new node
-                    nodes_df.loc[index, 'created'] = org_date
-
-                    # datelist.remove(org_date)
-                    nodes_df.loc[index, 'datelist'].remove(org_date)
-                    # new_node.loc[index, 'datelist'] = None
-
-                # else:
-                #     # make new entry from org_date as scheduled
-                #     new_node.loc[index, 'scheduled'] = org_date
-
-                # insert new node
-                # nodes_df = pd.concat([nodes_df, node], ignore_index=True)
-                # new_node.loc[index, 'datelist'] = None
-                # insert_nodes.append(new_node)
-                # datelist.remove(org_date)
-
-    # nodes_df.drop(delete_nodes, inplace=True)
-    # insert_nodes.append(nodes_df)
-    # nodes_df = pd.concat(insert_nodes, ignore_index=True)  # good god why
+                    nodes_df.loc[index, 'created'] = org_date  # put created in created col
+                    nodes_df.loc[index, 'datelist'].remove(org_date)  # remove created from datelist
 
     return nodes_df
 
@@ -303,23 +271,11 @@ def remove_created_dates(nodes_df):
 def expand_lists(nodes_df, cols):
     """ expand datelist (create new entries) """
 
-    # cant change index while iterating
-    delete_nodes = list()
-    insert_nodes = list()
-
     nodes_df_expanded = pd.DataFrame(columns=nodes_df.columns.tolist())
 
-    # parse datelist - past dates in the past are always created date? not sure
-    # get node by index as df
-    # create new entries based on datelist
-    # delete original entry
     for col in cols:
         for index in range(len(nodes_df)):
-            # node = nodes_df.loc[[index]]
             col_list = nodes_df.loc[index, col]
-
-            # drop old node
-            # delete_nodes.append(index)
 
             if len(col_list) > 0:
                 for org_date in col_list:
@@ -330,18 +286,112 @@ def expand_lists(nodes_df, cols):
                     nodes_df_expanded.loc[max(nodes_df_expanded.index), 'scheduled'] = org_date
                     nodes_df_expanded.loc[max(nodes_df_expanded.index), col] = None
 
-    # nodes_df.drop(delete_nodes, inplace=True)
-    # include nodes that were not expanded
+    # add in old nodes that did not get expanded
     nodes_df_expanded = pd.concat([nodes_df_expanded,
                                    nodes_df[~nodes_df.node_heading.isin(nodes_df_expanded.node_heading)]],
                                   ignore_index=True)
 
     return nodes_df_expanded
 
+
+def post_process(nodes_df):
+    """ pull repeater tuples out of scheduled data and store in repeater col """
+
+    for index in range(len(nodes_df)):
+        get_repeater(nodes_df, index)
+        get_effort_from_scheduled_ranges(nodes_df, index)
+
+        deadline = nodes_df.loc[index, 'deadline']
+        if deadline:
+            deadline = convert_org_parse_date_2_datetime(deadline)
+
+            p = deadline.time()
+            k = datetime.time.min
+
+            if deadline.time() == datetime.time.min:
+                deadline = set_datetime_eod(deadline)  # set to eod since deadline
+
+            nodes_df.loc[index, 'deadline'] = deadline
+
+        scheduled = nodes_df.loc[index, 'scheduled']
+        if scheduled:
+            scheduled = convert_org_parse_date_2_datetime(scheduled)
+            nodes_df.loc[index, 'scheduled'] = scheduled
+
+    return nodes_df
+
+
+def get_repeater(nodes_df, index):
+
+    if 'repeater_val' not in nodes_df.columns:
+        nodes_df['repeater_val'] = np.nan
+        nodes_df['repeater_unit'] = np.nan
+
+    scheduled = nodes_df.loc[index, 'scheduled']
+
+    if scheduled:
+        if scheduled._repeater:
+            repeater_tup = scheduled._repeater
+            repeat_delay = int(repeater_tup[1])
+
+            if repeater_tup[0] == '-':
+                repeat_delay = repeat_delay * -1
+
+            # repeater = dict()
+            # repeater[timedelta_org_mapping(repeater_tup[2])] = repeat_delay
+
+            nodes_df.loc[index, 'repeater_val'] = repeat_delay
+            nodes_df.loc[index, 'repeater_unit'] = timedelta_org_mapping(repeater_tup[2])
+
+    return
+
+
+def timedelta_org_mapping(org_repeat_window):
+    """ map org repeaters to timedelta windows """
+
+    mapped = dict()
+    mapped['d'] = 'days'
+    mapped['w'] = 'weeks'
+
+    return mapped[org_repeat_window]
+
+
+def get_effort_from_scheduled_ranges(nodes_df, index):
+    """ range item have min and max datetime objects indicating time assigned by user, convert to effort """
+
+    scheduled = nodes_df.loc[index, 'scheduled']
+
+    if scheduled:
+        if scheduled.start and scheduled.end:
+            effort = scheduled.end - scheduled.start
+            effort_sec = effort.total_seconds()
+            effort_min = effort_sec/60
+
+            nodes_df.loc[index, 'effort'] = int(effort_min)
+
+    return
+
+
 def remove_headings(nodes_df):
     """ any nodes with no deadline, effort or scheduled date are considered headings """
-    nodes_df.dropna(subset=['deadline', 'effort', 'scheduled'], thresh=3, inplace=True)
-    return
+    nodes_df.dropna(subset=['deadline', 'effort', 'scheduled'], how='all', inplace=True)
+    return nodes_df
+
+
+def checks(nodes_df):
+    """ check for any stupid (dysfunctional) user inputs """
+
+    nodes_df = remove_scheduled_before_deadline(nodes_df)
+
+    return nodes_df
+
+
+def remove_scheduled_before_deadline(nodes_df):
+    """ if scheduled after deadline remove scheduled """
+
+    issue_indices = nodes_df[nodes_df['deadline']<nodes_df['scheduled']]
+    nodes_df.loc[issue_indices.index, 'scheduled'] = np.nan
+    return nodes_df
 
 
 def main():
@@ -358,13 +408,14 @@ def main():
                                        'effort',
                                        'scheduled',
                                        'datelist',
-                                       'rangelist',
-                                       'created'])
+                                       'rangelist'])
 
     node_stats = process(tasks, node_stats)
     node_stats = remove_created_dates(node_stats)
     node_stats = expand_lists(node_stats, ['datelist', 'rangelist'])
-    # node_stats = expand_lists(node_stats, 'rangelist')
+    node_stats = post_process(node_stats)
+    node_stats = remove_headings(node_stats)
+    node_stats = checks(node_stats)
 
     # remove_headings(node_stats)
     print()
