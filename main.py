@@ -327,6 +327,8 @@ def get_repeater(nodes_df, index):
         nodes_df['repeater_val'] = np.nan
         nodes_df['repeater_unit'] = np.nan
 
+    # test = nodes_df.loc[0, 'repeater_val']
+
     scheduled = nodes_df.loc[index, 'scheduled']
 
     if scheduled:
@@ -372,9 +374,43 @@ def get_effort_from_scheduled_ranges(nodes_df, index):
     return
 
 
+def fill_recurring_to_max(nodes_df):
+    """ fill reoccuring nodes using repeaters up to max scheduled or deadline"""
+    max_deadline = nodes_df['deadline'].max()
+    max_schedule = nodes_df['scheduled'].max()
+
+    if max_deadline > max_schedule:
+        max_date = max_deadline
+    else:
+        max_date = max_schedule
+
+    recurring_nodes = nodes_df[nodes_df['repeater_unit'].notnull()]
+    expanded_nodes = pd.DataFrame(columns=recurring_nodes.columns.tolist())
+
+    for index in range(len(nodes_df)):
+        expanded_nodes = pd.concat([expanded_nodes, nodes_df.loc[[index]]], ignore_index=True)  # add original
+
+        # scheduled = nodes_df.loc[index, 'scheduled']
+        repeater_unit = nodes_df.loc[index, 'repeater_unit']
+        repeater_val = nodes_df.loc[index, 'repeater_val']
+
+        repeater = dict()
+        repeater[repeater_unit] = repeater_val
+
+        time_add = datetime.timedelta(**repeater)
+
+        while nodes_df.loc[index, 'scheduled'] + time_add < max_date:
+            nodes_df.loc[index, 'scheduled'] = nodes_df.loc[index, 'scheduled'] + time_add
+            nodes_df.loc[index, 'deadline'] = nodes_df.loc[index, 'deadline'] + time_add
+
+            expanded_nodes = pd.concat([expanded_nodes, nodes_df.loc[[index]]], ignore_index=True)
+
+    return nodes_df
+
+
 def remove_headings(nodes_df):
     """ any nodes with no deadline, effort or scheduled date are considered headings """
-    nodes_df.dropna(subset=['deadline', 'effort', 'scheduled'], how='all', inplace=True)
+    nodes_df.dropna(subset=['effort'], how='all', inplace=True)
     return nodes_df
 
 
@@ -416,6 +452,10 @@ def main():
     node_stats = post_process(node_stats)
     node_stats = remove_headings(node_stats)
     node_stats = checks(node_stats)
+
+    node_stats.fillna(value=np.nan, inplace=True)  # convert any none values to NaN
+
+    node_stats = fill_recurring_to_max(node_stats)
 
     # remove_headings(node_stats)
     print()
