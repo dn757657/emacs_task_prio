@@ -27,43 +27,43 @@ def parse_scheduled_from_task(task):
     #     for scheduled
 
 
-def get_scheduled(task):
-    """ to determine the time status of the task, possible outcomes:
-            - task has deadline
-                - could be date object
-                - could also be datetime object
-            - parent or ancestor has deadline (nearest deadline)
-            - task is scheduled already (pull effort from this?) -> move to other func!
-    """
-    scheduled = None
-
-    if task.scheduled:
-        scheduled = task.scheduled
-
-    elif task.parent:
-        level = task.level
-
-        while level >= 2 and not scheduled:
-            parent = task.get_parent()
-            if parent.scheduled:
-                scheduled = parent.scheduled
-                # break
-            else:
-                level += -1
-                task = parent
-
-    if scheduled:
-        # convert ord node date object to datetime
-        scheduled_str = scheduled.start.strftime("%Y-%m-%d %H:%M")
-        scheduled_datetime = datetime.datetime.strptime(scheduled_str, "%Y-%m-%d %H:%M")
-
-        if scheduled_datetime.time() == datetime.time.min:
-            # set to end of day
-            scheduled_datetime = scheduled_datetime + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)
-
-        scheduled = scheduled_datetime
-
-    return scheduled
+# def get_scheduled(task):
+#     """ to determine the time status of the task, possible outcomes:
+#             - task has deadline
+#                 - could be date object
+#                 - could also be datetime object
+#             - parent or ancestor has deadline (nearest deadline)
+#             - task is scheduled already (pull effort from this?) -> move to other func!
+#     """
+#     scheduled = None
+#
+#     if task.scheduled:
+#         scheduled = task.scheduled
+#
+#     elif task.parent:
+#         level = task.level
+#
+#         while level >= 2 and not scheduled:
+#             parent = task.get_parent()
+#             if parent.scheduled:
+#                 scheduled = parent.scheduled
+#                 # break
+#             else:
+#                 level += -1
+#                 task = parent
+#
+#     if scheduled:
+#         # convert ord node date object to datetime
+#         scheduled_str = scheduled.start.strftime("%Y-%m-%d %H:%M")
+#         scheduled_datetime = datetime.datetime.strptime(scheduled_str, "%Y-%m-%d %H:%M")
+#
+#         if scheduled_datetime.time() == datetime.time.min:
+#             # set to end of day
+#             scheduled_datetime = scheduled_datetime + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)
+#
+#         scheduled = scheduled_datetime
+#
+#     return scheduled
 
 
 def get_effort(node):
@@ -217,6 +217,7 @@ def process(nodes, node_stats, min_real_tasks_level=2):
     # expand nodes in stats once processed initially (upper date bound is known)
     # node_stats = pd.DataFrame(columns=['node_heading', 'deadline', 'effort', 'scheduled', 'repeat', 'repeat_unit', 'repeat_freq'])
 
+    # tree traversal reverse
     for child in nodes.children:
         node_stats = process(child, node_stats)
 
@@ -227,9 +228,12 @@ def process(nodes, node_stats, min_real_tasks_level=2):
     # get calc effort
     # get repeating stats
 
+    # do stuff with tree as it is traversed
     if nodes.level >= min_real_tasks_level:
         deadline = get_nearest_datetype_property(nodes, 'deadline')
         scheduled = get_nearest_datetype_property(nodes, 'scheduled')
+        # checks 1) if scheduled before deadline
+
         effort = get_effort(nodes)
 
         datelist = nodes.datelist  # any dates assigned
@@ -430,8 +434,91 @@ def remove_scheduled_before_deadline(nodes_df):
     return nodes_df
 
 
+def preorder_traversal(root, node_props_df=None):
+    """ traverse nodes and extract the required properties to calculate score criteria,
+    also propagate parent node props to children as required """
+
+    # create node properties dataframe
+    if not node_props_df:
+        node_props_df = pd.DataFrame(columns=['node_heading',
+                                              'deadline',
+                                              'effort',
+                                              'scheduled',
+                                              'datelist',
+                                              'rangelist'])
+
+    if not root:
+        return
+
+    # do stuff with current node
+    print(root.heading)
+    if is_task(root) and root.heading not in node_props_df['node_heading']:
+        # layout props for newline
+
+        df_newline = pd.DataFrame(data=[[nodes.heading,
+                                             deadline,
+                                             effort,
+                                             scheduled,
+                                             datelist,
+                                             rangelist]],
+                                      columns=node_stats.columns.tolist())
+
+        node_stats = pd.concat([node_stats_new, node_stats], ignore_index=True)
+
+
+    # continue traversal
+    for child in root.children:
+        node_props_df = preorder_traversal(child, node_props_df)
+
+    return node_props_df
+
+
+def is_task(node):
+    """ determine if a node is a task """
+    task = False
+
+    if node.deadline or get_scheduled(node):
+        task = True
+
+    return task
+
+
+def get_scheduled(node):
+    """ there are three ways a task can be scheduled
+            - node has .scheduled prop
+            - node has datelist item(s) that is not the created date
+            - node has rangelist item(s)
+    """
+    scheduled = []
+
+    if node.scheduled:
+        scheduled.append(node.scheduled)
+
+    elif node.datelist:
+        # created date shows up in datelist, kinda wanted to keep it so pulling out created best i can
+        for org_date in node.datelist:
+            if not is_created_date(org_date):
+                scheduled.append(org_date)
+
+    elif node.rangelist:
+        scheduled = scheduled + node.rangelist
+
+    return scheduled
+
+
+def is_created_date(org_date):
+    """ if a date has no repeater (user did not intend to repeat, and occurs prior to present date,
+     this is likely** the creation date"""
+    if convert_org_parse_date_2_datetime(org_date) < datetime.datetime.today() and not org_date._repeater:
+        return True
+    else:
+        return False
+
+
 def main():
     tasks = read_tasks(TASKS_FILE_IN)
+    preorder_traversal(tasks)
+
     root = tasks.root
 
     # populate node stats as we go
@@ -439,23 +526,23 @@ def main():
     # expand nodes in stats once processed initially (upper date bound is known)
     # node_stats = pd.DataFrame(columns=['node_heading', 'deadline', 'effort', 'scheduled', 'repeat', 'repeat_unit', 'repeat_freq'])
 
-    node_stats = pd.DataFrame(columns=['node_heading',
-                                       'deadline',
-                                       'effort',
-                                       'scheduled',
-                                       'datelist',
-                                       'rangelist'])
-
-    node_stats = process(tasks, node_stats)
-    node_stats = remove_created_dates(node_stats)
-    node_stats = expand_lists(node_stats, ['datelist', 'rangelist'])
-    node_stats = post_process(node_stats)
-    node_stats = remove_headings(node_stats)
-    node_stats = checks(node_stats)
-
-    node_stats.fillna(value=np.nan, inplace=True)  # convert any none values to NaN
-
-    node_stats = fill_recurring_to_max(node_stats)
+        # node_stats = pd.DataFrame(columns=['node_heading',
+        #                                    'deadline',
+        #                                    'effort',
+        #                                    'scheduled',
+        #                                    'datelist',
+        #                                    'rangelist'])
+        #
+        # node_stats = process(tasks, node_stats)
+        # node_stats = remove_created_dates(node_stats)
+        # node_stats = expand_lists(node_stats, ['datelist', 'rangelist'])
+        # node_stats = post_process(node_stats)
+        # node_stats = remove_headings(node_stats)
+        # node_stats = checks(node_stats)
+        #
+        # node_stats.fillna(value=np.nan, inplace=True)  # convert any none values to NaN
+        #
+        # node_stats = fill_recurring_to_max(node_stats)
 
     # remove_headings(node_stats)
     print()
