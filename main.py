@@ -436,7 +436,7 @@ def remove_scheduled_before_deadline(nodes_df):
 
 def preorder_traversal(root,
                        node_props_df=pd.DataFrame(columns=['node_heading']),
-                       test=list()):
+                       processed=list()):
     """ traverse nodes and extract the required properties to calculate score criteria,
     also propagate parent node props to children as required """
 
@@ -455,9 +455,9 @@ def preorder_traversal(root,
         return
 
     # do stuff with current node
-    if not root.root == root:  # as long as passed node root, is not the root node
-        print(root.heading)
-        test.append(root.heading)
+    # if not root.root == root:  # as long as passed node root, is not the root node
+    #     print(root.heading)
+    #     processed.append(root)
         # if is_task(root):  # TODO check is task later using df?
         # if parent in node df than continue, or if parent is root (since root will never make it to node df)
         # if root.parent.heading in node_props_df.node_heading.values or root.parent == root.root:
@@ -474,17 +474,26 @@ def preorder_traversal(root,
 
 
     # continue traversal
-    if root.children:
-        for child in root.children:
-            if child.heading not in test:
-                node_props_df, test = preorder_traversal(child, node_props_df, test)
-            else:
-                continue
+    # if no children, or no unprocessed children
+    if not root.children or (root.children and set(root.children).issubset(processed)):
+        if root.root == root:
+            # stop when done (root has no unprocessed children)
+            return node_props_df, processed
+
+        else:
+            # process root (all children done at this point)
+            print(f'process {root.heading}')
+            processed.append(root)
+            # pass root, start over
+            node_props_df, processed = preorder_traversal(root.root, node_props_df, processed)
 
     else:
-        node_props_df, test = preorder_traversal(root.root, node_props_df)
+        for child in root.children:
+            if child not in processed:
+                print(f'pass {child.heading}')
+                node_props_df, processed = preorder_traversal(child, node_props_df, processed)
 
-    return node_props_df, test
+    return node_props_df, processed
 
 
 def is_task(node):
