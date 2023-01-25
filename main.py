@@ -434,43 +434,57 @@ def remove_scheduled_before_deadline(nodes_df):
     return nodes_df
 
 
-def preorder_traversal(root, node_props_df=None):
+def preorder_traversal(root,
+                       node_props_df=pd.DataFrame(columns=['node_heading']),
+                       test=list()):
     """ traverse nodes and extract the required properties to calculate score criteria,
     also propagate parent node props to children as required """
 
     # create node properties dataframe
-    if not node_props_df:
-        node_props_df = pd.DataFrame(columns=['node_heading',
-                                              'deadline',
-                                              'effort',
-                                              'scheduled',
-                                              'datelist',
-                                              'rangelist'])
+    # if not node_props_df.empty:
+    #     node_props_df = pd.DataFrame(columns=['node_heading',
+    #                                           'deadline',
+    #                                           'effort',
+    #                                           'scheduled',
+    #                                           'datelist',
+    #                                           'rangelist'])
+
+    # test = []
 
     if not root:
         return
 
     # do stuff with current node
-    print(root.heading)
-    if is_task(root) and root.heading not in node_props_df['node_heading']:
-        # layout props for newline
-
-        df_newline = pd.DataFrame(data=[[nodes.heading,
-                                             deadline,
-                                             effort,
-                                             scheduled,
-                                             datelist,
-                                             rangelist]],
-                                      columns=node_stats.columns.tolist())
-
-        node_stats = pd.concat([node_stats_new, node_stats], ignore_index=True)
+    if not root.root == root:  # as long as passed node root, is not the root node
+        print(root.heading)
+        test.append(root.heading)
+        # if is_task(root):  # TODO check is task later using df?
+        # if parent in node df than continue, or if parent is root (since root will never make it to node df)
+        # if root.parent.heading in node_props_df.node_heading.values or root.parent == root.root:
+        #     if root.heading not in node_props_df.node_heading.values:
+        #         # layout props for newline
+        #         heading = root.heading
+        #
+        #         df_newline = pd.DataFrame(data=[[heading]],
+        #                                   columns=node_props_df.columns.tolist())
+        #
+        #         node_props_df = pd.concat([df_newline, node_props_df], ignore_index=True)
+        # else:
+        #     processed_non_tasks.append(root.heading)
 
 
     # continue traversal
-    for child in root.children:
-        node_props_df = preorder_traversal(child, node_props_df)
+    if root.children:
+        for child in root.children:
+            if child.heading not in test:
+                node_props_df, test = preorder_traversal(child, node_props_df, test)
+            else:
+                continue
 
-    return node_props_df
+    else:
+        node_props_df, test = preorder_traversal(root.root, node_props_df)
+
+    return node_props_df, test
 
 
 def is_task(node):
