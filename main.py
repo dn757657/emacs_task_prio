@@ -436,7 +436,7 @@ def remove_scheduled_before_deadline(nodes_df):
 
 def preorder_traversal(root,
                        node_props_df=pd.DataFrame(columns=['node_heading']),
-                       test=list()):
+                       test=None):
     """ traverse nodes and extract the required properties to calculate score criteria,
     also propagate parent node props to children as required """
 
@@ -450,6 +450,8 @@ def preorder_traversal(root,
     #                                           'rangelist'])
 
     # test = []
+    if not test:
+        test = []
 
     if not root:
         return
