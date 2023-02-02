@@ -66,26 +66,6 @@ def parse_scheduled_from_task(task):
 #     return scheduled
 
 
-def get_effort(node):
-    """ fetch a property, if property not found get from nearest_parent
-    """
-    effort = node.get_property("Effort")
-
-    if node.parent:
-        level = node.level
-
-        while level >= 2:
-            parent = node.get_parent()
-            parent_effort = parent.get_property('Effort')
-            if parent_effort:
-                effort += parent_effort
-            else:
-                node = parent
-            level += -1
-
-    return effort
-
-
 def get_nearest_datetype_property(node, node_property_str):
     """ fetch a property, if property not found get from nearest_parent
     """
@@ -434,72 +414,212 @@ def remove_scheduled_before_deadline(nodes_df):
     return nodes_df
 
 
+def return_node_props_df():
+    """ centralize creation for concatenation consistency """
+    columns = ['node_heading',
+               'cascaded_efforts',
+               'efforts',
+               'deadline',
+               'scheduled',
+               'urg_score']
+
+    # TODO seperate efforts and cascaded_efforts for analytics later
+
+    return pd.DataFrame(columns=columns)
+
+
 def preorder_traversal(root,
-                       node_props_df=pd.DataFrame(columns=['node_heading']),
-                       processed=list()):
+                       node_props_df=None,
+                       processed=None,
+                       node_df=None):
     """ traverse nodes and extract the required properties to calculate score criteria,
-    also propagate parent node props to children as required """
+    also propagate parent node props to children as required
 
-    # create node properties dataframe
-    # if not node_props_df.empty:
-    #     node_props_df = pd.DataFrame(columns=['node_heading',
-    #                                           'deadline',
-    #                                           'effort',
-    #                                           'scheduled',
-    #                                           'datelist',
-    #                                           'rangelist'])
+    this traversal traces each branch from top to bottom, when root.root is passed to self it signifies the
+    start of a new branch
 
-    # test = []
+    it is essential that non task nodes be filtered out LATER? could likely incorporate here but easier not to
+    because i have a little brain
+    """
 
-    if not root:
+    if node_props_df is None:
+        node_props_df = return_node_props_df()
+
+    if node_df is None:
+        node_df = return_node_props_df()
+
+    if not processed:
+        processed = list()
+
+    if not root:  # do not delete lol, dont know why anymore
         return
 
-    # do stuff with current node
-    # if not root.root == root:  # as long as passed node root, is not the root node
-    #     print(root.heading)
-    #     processed.append(root)
-        # if is_task(root):  # TODO check is task later using df?
-        # if parent in node df than continue, or if parent is root (since root will never make it to node df)
-        # if root.parent.heading in node_props_df.node_heading.values or root.parent == root.root:
-        #     if root.heading not in node_props_df.node_heading.values:
-        #         # layout props for newline
-        #         heading = root.heading
-        #
-        #         df_newline = pd.DataFrame(data=[[heading]],
-        #                                   columns=node_props_df.columns.tolist())
-        #
-        #         node_props_df = pd.concat([df_newline, node_props_df], ignore_index=True)
-        # else:
-        #     processed_non_tasks.append(root.heading)
-
-
-    # continue traversal
     # if no children, or no unprocessed children
     if not root.children or (root.children and set(root.children).issubset(processed)):
         if root.root == root:
             # stop when done (root has no unprocessed children)
-            return node_props_df, processed
+            return node_props_df, processed, node_df
 
         else:
             # process root (all children done at this point)
             print(f'process {root.heading}')
+
+            # concat node_df to main props df
+            node_df.loc[0, 'node_heading'] = root.heading  # only update heading before appending
+            node_props_df = pd.concat([node_props_df, node_df], ignore_index=True)  # add new node to props
+
             processed.append(root)
             # pass root, start over
-            node_props_df, processed = preorder_traversal(root.root, node_props_df, processed)
+            # starting over means resetting the node properties
+            # therefore no node_df is passed, creating a new blank node_df from function defaults
+            # recur
+            node_props_df, processed, node_df = preorder_traversal(root.root, node_props_df, processed)
 
     else:
         for child in root.children:
             if child not in processed:
                 print(f'pass {child.heading}')
-                node_props_df, processed = preorder_traversal(child, node_props_df, processed)
 
-    return node_props_df, processed
+                # update the node with cascaded properties
+                node_df = update_node(node=child, node_df=node_df)
+                node_df.loc[0, 'node_heading'] = child.heading
+                # recur
+                node_props_df, processed, node_df = preorder_traversal(root=child,
+                                                                       node_props_df=node_props_df,
+                                                                       processed=processed,
+                                                                       node_df=node_df)
+
+    return node_props_df, processed, node_df
+
+
+def update_node(node, node_df):
+    """ extract properties from node, update or add if necessary """
+    node_df = update_cascaded_effort(node, node_df)
+    node_df.loc[0, 'efforts'] = get_effort(node)
+    node_df = update_deadline(node=node, node_df=node_df)
+    node_df = update_scheduled(node=node, node_df=node_df)
+
+    return node_df
+
+
+def get_effort(node):
+    """ get effort from either source
+            - effort prop
+            - rangelist
+            - scheduled with range props?
+        can only be one of the other
+        effort should be a list because of rangelist
+    """
+
+    # get effort from node
+    efforts = list()
+    efforts_prop = node.get_property("Effort")
+
+    if efforts_prop:
+        efforts.append(efforts_prop)
+
+    elif node.rangelist:
+        efforts = efforts + get_effort_from_org_rangedates(node.rangelist)
+
+    elif node.scheduled:
+        efforts = efforts + get_effort_from_org_rangedates(node.scheduled)
+
+    return efforts
+
+
+def get_effort_from_org_rangedates(range_dates):
+    """ range item have min and max datetime objects indicating time assigned by user, convert to effort """
+
+    if not isinstance(range_dates, list):
+        range_dates = [range_dates]
+
+    range_efforts = list()
+
+    for rdate in range_dates:
+        if rdate.start and rdate.end:
+            effort = rdate.end - rdate.start
+            effort_sec = effort.total_seconds()
+            effort_min = effort_sec/60
+
+            range_efforts.append(int(effort_min))
+
+    return range_efforts
+
+
+def update_cascaded_effort(node, node_df):
+    """ checks and updates cascaded effort """
+    if not node_df.empty:
+        current_cas_efforts = node_df.loc[0, 'cascaded_efforts']
+    else:
+        current_cas_efforts = []
+
+    new_efforts = get_effort(node=node)
+    updated_cas_efforts = list()
+
+    if len(current_cas_efforts) > 1:  # greater len would indicate multiple efforts from rangelist
+        # multiple efforts means children cannot also have a rangelist of efforts
+        if len(new_efforts) > 1:
+            print(f'cannot process child and parent with multiple range scheduled')
+            return
+
+    if len(current_cas_efforts) > 0:
+        for c_effort in current_cas_efforts:
+            for n_effort in new_efforts:
+                updated_cas_efforts.append(c_effort + n_effort)
+    else:
+        updated_cas_efforts = new_efforts
+
+    node_df.loc[0, 'cascaded_efforts'] = updated_cas_efforts
+    return node_df
+
+
+def update_deadline(node, node_df):
+    """ dont need deadline since it only comes from one source
+        check for cascaded deadline
+        check for self deadline
+        if self deadline is before cascaded, then use that one
+    """
+    node_deadline = node.deadline
+    df_deadline = node_df.loc[0, 'deadline']
+
+    if node_deadline.start:  # check if deadline set for node is before deadline set for cascaded
+        node_deadline_dt = convert_org_parse_date_2_datetime(node_deadline)
+        if hasattr(df_deadline, 'start'):
+            df_deadline_dt = convert_org_parse_date_2_datetime(df_deadline)
+
+            if node_deadline_dt < df_deadline_dt:  # if node deadline is sooner than cascaded
+                node_df.loc[0, 'deadline'] = node_deadline
+            else:
+                node_df.loc[0, 'deadline'] = df_deadline
+        else:
+            node_df.loc[0, 'deadline'] = node_deadline
+
+    return node_df
+
+
+def update_scheduled(node, node_df):
+    """ update scheduled
+            - can scheduled be inherited?
+            - no, parent schedule becomes child deadline
+    """
+
+    node_scheduled = get_scheduled(node)
+    df_scheduled = node_df.loc[0, 'scheduled']
+
+    if len(node_scheduled) == 0:  # if cascaded scheduled, and no node scheduled, cascaded becomes deadline
+        if df_scheduled != np.nan:  # TODO not working start here
+            node_df.loc[0, 'deadline'] = df_scheduled
+    else:
+        node_df.loc[0, 'scheduled'] = node_scheduled
+
+    return node_df
 
 
 def is_task(node):
     """ determine if a node is a task """
     task = False
 
+    # node has deadline or scheduled, then is task**
     if node.deadline or get_scheduled(node):
         task = True
 
@@ -511,19 +631,20 @@ def get_scheduled(node):
             - node has .scheduled prop
             - node has datelist item(s) that is not the created date
             - node has rangelist item(s)
+        can have all three? likely
     """
     scheduled = []
 
     if node.scheduled:
         scheduled.append(node.scheduled)
 
-    elif node.datelist:
+    if node.datelist:
         # created date shows up in datelist, kinda wanted to keep it so pulling out created best i can
         for org_date in node.datelist:
             if not is_created_date(org_date):
                 scheduled.append(org_date)
 
-    elif node.rangelist:
+    if node.rangelist:
         scheduled = scheduled + node.rangelist
 
     return scheduled
@@ -539,65 +660,17 @@ def is_created_date(org_date):
 
 
 def main():
+    """ rules:
+        1)  rangelist children only have effort if they need to be done prior to rangelist item
+            examples:
+                - often rangelist is used for meetings or recurring tasks, children of the meeting may be meeting
+                  items, but if they occur within the meeting time they should not have effort
+                - if they need be accomplished prior to the meeting they should have effort assigned
+    """
     tasks = read_tasks(TASKS_FILE_IN)
-    preorder_traversal(tasks)
+    node_props_df, stuff, stuff1 = preorder_traversal(tasks)
 
-    root = tasks.root
-
-    # populate node stats as we go
-    # can find upper bound in populated stats
-    # expand nodes in stats once processed initially (upper date bound is known)
-    # node_stats = pd.DataFrame(columns=['node_heading', 'deadline', 'effort', 'scheduled', 'repeat', 'repeat_unit', 'repeat_freq'])
-
-        # node_stats = pd.DataFrame(columns=['node_heading',
-        #                                    'deadline',
-        #                                    'effort',
-        #                                    'scheduled',
-        #                                    'datelist',
-        #                                    'rangelist'])
-        #
-        # node_stats = process(tasks, node_stats)
-        # node_stats = remove_created_dates(node_stats)
-        # node_stats = expand_lists(node_stats, ['datelist', 'rangelist'])
-        # node_stats = post_process(node_stats)
-        # node_stats = remove_headings(node_stats)
-        # node_stats = checks(node_stats)
-        #
-        # node_stats.fillna(value=np.nan, inplace=True)  # convert any none values to NaN
-        #
-        # node_stats = fill_recurring_to_max(node_stats)
-
-    # remove_headings(node_stats)
     print()
-
-    # trees = tasks.children  # trees are all top level headings
-
-    # for each tree we need to find the base child
-    # for tree in trees:
-    # post_order_traversal(tasks)
-
-    # for tree in tasks.children:
-    #     process_tree(tree)
-    #
-    # print()
-    #
-    # subtree = tasks.children[0]
-    # while subtree.children:
-    #     subtree = subtree.children
-
-    # find_tree_min_level(tasks)
-
-    # need to find the bottom of the tree and work way back up using existing neighbour capability of nodes?
-    # root nodes have different rules than all others, they need deadline to be valid whereas others can meet other
-    # conditions to be considered valid
-    # while True:
-    #     for subtree in tasks.children:
-    #         if subtree.deadline:  # root task must have deadline to be valid
-    #             if subtree.children:  # if children need to keep checking for children
-    #                 tasks = subtree
-    #                 break
-    #             else:  # if no children process
-    #                 print(f'start processing {subtree.heading}')
 
 
 if __name__ == "__main__":
