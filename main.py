@@ -605,25 +605,64 @@ def update_scheduled(node, node_df):
 
     node_scheduled = get_scheduled(node)
     df_scheduled = node_df.loc[0, 'scheduled']
+    test = pd.isnull(node_df.loc[0, 'scheduled'])
 
     if len(node_scheduled) == 0:  # if cascaded scheduled, and no node scheduled, cascaded becomes deadline
-        if df_scheduled != np.nan:  # TODO not working start here
-            node_df.loc[0, 'deadline'] = df_scheduled
+        # if df_scheduled != np.nan:
+        if not pd.isnull(node_df.loc[0, 'scheduled']) and len(df_scheduled) != 0:
+            node_df.loc[0, 'deadline'] = df_scheduled[0]  # TODO this is bad, parent can have multiple scheduled, but cant accomodate multiple deadlines in rest of code
+        node_df.loc[0, 'scheduled'] = np.nan
+
     else:
         node_df.loc[0, 'scheduled'] = node_scheduled
 
     return node_df
 
 
-def is_task(node):
-    """ determine if a node is a task """
-    task = False
+# TODO checks:
+# check scheduled is less than deadline!
+# number of efforts must match number of schedule dates
 
-    # node has deadline or scheduled, then is task**
-    if node.deadline or get_scheduled(node):
-        task = True
 
-    return task
+def elim_non_tasks_df(nodes_df):
+    """ eliminate entries in nodes_df that arent tasks """
+
+    test = nodes_df[['deadline', 'scheduled']]
+
+    nodes_df.dropna(axis=0, subset=['scheduled', 'deadline'], how='all', inplace=True)
+
+    return nodes_df
+
+
+def score_tasks_df(nodes_df):
+    """ score each task/node in nodes df """
+
+    # score formula: deadline - effort - today = time remaining
+    # lower score means more urgent
+
+    # test1 = nodes_df['deadline'].isnull()
+    # test = nodes_df.loc[pd.isnull(nodes_df['deadline'])].index
+
+    # n = nodes_df.iloc[16]
+    # TODO expand list shit to items flatten:score:sort 
+
+    for idx in nodes_df[nodes_df['scheduled'].isnull()].index:
+        efforts = nodes_df.loc[idx, 'cascaded_efforts']
+        scores = list()
+        for effort in efforts:
+            deadline_dt = convert_org_parse_date_2_datetime(nodes_df.loc[idx, 'deadline'])
+            today_dt = datetime.datetime.today()
+
+            time_remaining_delta = deadline_dt - today_dt
+            time_remaining_seconds = time_remaining_delta.total_seconds()
+            time_remaining_minutes = time_remaining_seconds/60
+
+            time_remaining_minutes_adj = time_remaining_minutes - effort
+            scores.append(1/time_remaining_minutes_adj)  # score is inverted such that larger means more urgent
+
+        nodes_df.loc[idx, 'urg_score'] = scores
+
+    return nodes_df
 
 
 def get_scheduled(node):
@@ -641,22 +680,13 @@ def get_scheduled(node):
     if node.datelist:
         # created date shows up in datelist, kinda wanted to keep it so pulling out created best i can
         for org_date in node.datelist:
-            if not is_created_date(org_date):
+            if org_date not in list(node.properties.values()):  # ensure date is not in properties **important
                 scheduled.append(org_date)
 
     if node.rangelist:
         scheduled = scheduled + node.rangelist
 
     return scheduled
-
-
-def is_created_date(org_date):
-    """ if a date has no repeater (user did not intend to repeat, and occurs prior to present date,
-     this is likely** the creation date"""
-    if convert_org_parse_date_2_datetime(org_date) < datetime.datetime.today() and not org_date._repeater:
-        return True
-    else:
-        return False
 
 
 def main():
@@ -669,6 +699,8 @@ def main():
     """
     tasks = read_tasks(TASKS_FILE_IN)
     node_props_df, stuff, stuff1 = preorder_traversal(tasks)
+    node_props_df = elim_non_tasks_df(node_props_df)
+    node_props_df = score_tasks_df(node_props_df)
 
     print()
 
