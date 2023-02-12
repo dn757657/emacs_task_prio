@@ -644,7 +644,7 @@ def score_tasks_df(nodes_df):
     # test = nodes_df.loc[pd.isnull(nodes_df['deadline'])].index
 
     # n = nodes_df.iloc[16]
-    # TODO expand list shit to items flatten:score:sort 
+    # TODO expand list shit to items flatten:score:sort
 
     for idx in nodes_df[nodes_df['scheduled'].isnull()].index:
         efforts = nodes_df.loc[idx, 'cascaded_efforts']
@@ -663,6 +663,78 @@ def score_tasks_df(nodes_df):
         nodes_df.loc[idx, 'urg_score'] = scores
 
     return nodes_df
+
+
+def flatten_tasks(nodes_df):
+    """ some nodes can have multiple efforts or scheduled dates
+    flatten to ensure single dates for all
+    convert any list columns to single item
+    """
+
+    nodes_df_expanded = pd.DataFrame()
+    cascaded_efforts_row_name = 'cascaded_efforts'
+    efforts_row_name = 'efforts'
+    scheduled_row_name = 'scheduled'
+
+    for idx, row in nodes_df.iterrows():
+        cascaded_efforts = row[cascaded_efforts_row_name]
+        efforts = row[efforts_row_name]
+        scheduled = row[scheduled_row_name]
+
+        if not pd.isnull(efforts) and not pd.isnull(scheduled):
+
+            if len(efforts) == len(scheduled):
+                # create entries for efforts and scheduled by index
+                for i in range(0, len(efforts)):
+                    new_row = row
+                    new_row[cascaded_efforts_row_name] = cascaded_efforts[i]
+                    new_row[efforts_row_name] = efforts[i]
+                    new_row[scheduled_row_name] = scheduled[i]
+                    nodes_df_expanded = nodes_df_expanded.append(new_row, ignore_index=True)
+
+            elif len(scheduled) > len(efforts):
+                if len(efforts) == 1:
+                    for date in scheduled:
+                        new_row = row
+                        new_row[efforts_row_name] = efforts[0]
+                        new_row[scheduled_row_name] = date
+                else:
+                    print(f'cannot expand row: {row}')
+            else:
+                print(f'cannot expand row: {row}')
+
+    return nodes_df_expanded
+
+
+
+# def expand_lists_2(df):
+#     expanded_rows = []
+#     for index, row in df.iterrows():
+#         lists = [col for col in row if isinstance(col, list)]
+#         if len(lists) == 0:
+#             expanded_rows.append(row)
+#         else:
+#             list_entries = [row.astype(object).where(pd.notnull(row), None) for i in range(len(lists[0]))]
+#             for entry in list_entries:
+#                 for col in lists:
+#                     entry[col] = col
+#                 expanded_rows.append(entry)
+#     return pd.DataFrame(expanded_rows)
+
+# def expand_lists_2(df):
+#     expanded_df = pd.DataFrame()
+#     for index, row in df.iterrows():
+#         has_list = False
+#         for col in df.columns:
+#             if type(row[col]) == list:
+#                 has_list = True
+#                 for item in row[col]:
+#                     new_row = row.copy()
+#                     new_row[col] = item
+#                     expanded_df = expanded_df.append(new_row, ignore_index=True)
+#         if not has_list:
+#             expanded_df = expanded_df.append(row, ignore_index=True)
+#     return expanded_df
 
 
 def get_scheduled(node):
@@ -700,6 +772,9 @@ def main():
     tasks = read_tasks(TASKS_FILE_IN)
     node_props_df, stuff, stuff1 = preorder_traversal(tasks)
     node_props_df = elim_non_tasks_df(node_props_df)
+
+    expanded = flatten_tasks(node_props_df)
+
     node_props_df = score_tasks_df(node_props_df)
 
     print()
