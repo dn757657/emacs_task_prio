@@ -1,12 +1,13 @@
 import numpy as np
 import orgparse
 import orgparse.node
+from orgparse import date as orgdate
 import pandas as pd
 import datetime
 import PyOrgMode
 
-TASKS_FILE_IN = "C://Users//Daniel//emacs//org//Tasks_test.org"
-TASKS_FILE_OUT = "C://Users//Daniel//emacs//org//Tasks_testout.org"
+TASKS_FILE_IN = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test.org"
+TASKS_FILE_OUT = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test_out.org"
 
 
 def read_tasks(tasks_file_path):
@@ -15,16 +16,21 @@ def read_tasks(tasks_file_path):
     return tasks
 
 
+def score_task(node):
+    """ score and return node with score property added """
+
+    return node
+
+
 def pre_order_traversal(node):
     """ root -> left node -> right node
 
     node must have children property
     node must have heading property
     """
-    # do stuff
-    print(f'process: {node.heading}')
-    # if node.parent:
-    parent_traversal(node)
+    # score node
+    print(f'scoring: {node.heading}')
+    parent_traversal(node)  # get properties of parents
 
     for child in node.children:
         pre_order_traversal(child)
@@ -75,8 +81,8 @@ def duplicate_node(root, node):
 
 def lines_2_nodes(lines):
     """ turn lines back to a node tree
-    :param lines:
-    :return:
+    :param lines: list of lines
+    :return: orgparse node env
     """
 
     flatted_list = flatten(lines)
@@ -98,6 +104,23 @@ def flatten(lst):
     return result
 
 
+def nodes_to_file(nodes, outfile):
+    """ write node tree out to file
+    :param nodes: orgparse node env
+    :param outfile: string filepath
+    :return: nothing
+    """
+
+    lines = dump_nodes(nodes)
+    flatted_list = flatten(lines)
+    flatted_str = '\n'.join(flatted_list)
+
+    with open(outfile, 'w') as file:
+        file.write(flatted_str)
+
+    return
+
+
 def main():
     """ rules:
         1)  rangelist children only have effort if they need to be done prior to rangelist item
@@ -109,11 +132,43 @@ def main():
     tasks = orgparse.load(TASKS_FILE_IN)
     test = pre_order_traversal(tasks.root)
 
-    dump = dump_nodes(tasks.children[1])
+    # test to see if lines are updated with properties
+    # lines are NOT updated if random property is added - could write a func to do this, might need to
+    node_lines_changed = False
 
-    dup_node = tasks.children[1].children[1]
-    tasks_w_dups = duplicate_node(tasks, dup_node)
+    test_node = tasks.children[1].children[0]
+    test_node.properties['urgency'] = 10  # simulate urgency addition
+    lines_ini = test_node._lines
 
+    # NODE dumping?
+    from inorganic_karlicross import asorgoutline
+    test = asorgoutline(heading=test_node.heading,
+                        todo=test_node.todo,
+                        tags=test_node.tags,
+                        # scheduled=test_node.scheduled,
+                        properties=test_node.properties,
+                        body=test_node.body,
+                        )
+    print(test)
+
+    # testing syncs-------------------------------
+    # # update.sync deadline
+    # new_dead = orgdate.OrgDate.from_str('2012-02-10 Fri')
+    # test_node.deadline = new_dead
+    #
+    # # update.sync scheduled
+    # new_sched = orgdate.OrgDate.from_str('2012-02-10 Fri')
+    # test_node.scheduled = new_sched
+
+    # # update.sync a property
+    # test_node.properties['Effort'] = 5
+    #
+    # lines_post = test_node._lines
+    #
+    # if lines_ini != lines_post:
+    #     node_lines_changed = True
+    #
+    # nodes_to_file(tasks, TASKS_FILE_OUT)  # out to file (check)
 
     print()
 
