@@ -1,9 +1,5 @@
-import numpy as np
 import orgparse
 import orgparse.node
-import pandas as pd
-import datetime
-import PyOrgMode
 
 TASKS_FILE_IN = "C://Users//Daniel//emacs//org//Tasks_test.org"
 TASKS_FILE_OUT = "C://Users//Daniel//emacs//org//Tasks_testout.org"
