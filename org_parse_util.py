@@ -16,7 +16,7 @@ def dump_nodes(root):
     return lines
 
 
-def duplicate_node(root, node):
+def duplicate_node(node):
     """ i think we need the entire tree, hence pass root
         - get both the root and node as lines
         - get the start and end of node_lines to duplicate within root_lines
@@ -25,16 +25,30 @@ def duplicate_node(root, node):
         returns nodes with duplicated
     """
 
+    root = node.root
     root_lines = dump_nodes(root)
     node_lines = dump_nodes(node)
 
-    node_line_number = node.linenumber
+    node_start_location, node_end_location = locate_node_in_root(root_lines=root_lines,
+                                                                 node_lines=node_lines,
+                                                                 node_line_number=node.linenumber)
 
-    # to find where to insert duplicate we need to indentify node from potential duplicates
-    # in the root_lines list,
-    # each node as a linenumber property indicating its location in the root._lines structure
-    # if it is flat, therefore by using the lengths of the individual lists in root_lines
-    # we can find its location and insert appropriately
+    # split root_lines at end of node_lines and insert new duplicated node there
+    root_lines_before_new_node = root_lines[:node_end_location+1]
+    root_lines_after_new_node = root_lines[node_end_location+1:]
+    root_lines = root_lines_before_new_node + node_lines + root_lines_after_new_node
+
+    return lines_2_nodes(root_lines)
+
+
+def locate_node_in_root(root_lines, node_lines, node_line_number):
+    """
+    to find where to insert duplicate we need to indentify node from potential duplicates
+    in the root_lines list,
+    each node as a linenumber property indicating its location in the root._lines structure
+    if it is flat, therefore by using the lengths of the individual lists in root_lines
+    we can find its location and insert appropriately
+    """
 
     # find location in root_nodes where node_lines are using node.linenumber
     lines = 0
@@ -47,10 +61,46 @@ def duplicate_node(root, node):
     node_start_location = i - 1  # inclusive (index is first line)
     node_end_location = node_start_location + len(node_lines) - 1  # inclusive (index is last line)
 
-    # split root_lines at end of node_lines and insert new duplicated node there
-    root_lines_before_new_node = root_lines[:node_end_location+1]
-    root_lines_after_new_node = root_lines[node_end_location+1:]
-    root_lines = root_lines_before_new_node + node_lines + root_lines_after_new_node
+    return node_start_location, node_end_location
+
+
+def update_date_kwd(node, kwd, new_date):
+    """ for when orgparse.OrgNode.kwd cannot be set (scheduled and deadline), therefore:
+        - dump lines
+        - update schedule in lines
+            - convert orgDate to string
+            - find scheduled keyword
+            - replace date component
+        - turn lines back into a node
+
+    :param new_date is orgparse.OrgDate
+    :return root
+    """
+
+    root = node.root
+    root_lines = dump_nodes(root)
+    node_lines = dump_nodes(node)
+
+    node_start_location, node_end_location = locate_node_in_root(root_lines=root_lines,
+                                                                 node_lines=node_lines,
+                                                                 node_line_number=node.linenumber)
+
+    # since we only want to change scheduled in the node passed, use [0] from node_lines
+    test = root_lines
+    line_to_update = root_lines[node_start_location]
+
+    i = None
+    for i, line in enumerate(node_lines):
+        if kwd in line:  # find which line contains keyword
+            break
+
+    if i:
+        date_start_idx = line_to_update[i].find("<")
+        date_end_idx = line_to_update[i].find(">")
+
+        root_lines[node_start_location][i] = line_to_update[i][:date_start_idx] \
+                                             + new_date.__str__() \
+                                             + line_to_update[i][date_end_idx+1:]
 
     return lines_2_nodes(root_lines)
 

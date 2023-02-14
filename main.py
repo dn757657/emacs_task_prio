@@ -54,8 +54,8 @@ def main():
     tasks = orgparse.load(TASKS_FILE_IN)
     # test = pre_order_traversal(tasks.root)
 
-    task_to_duplicate = tasks.children[1].children[1]
-    tasks = org_parse_util.duplicate_node(tasks, task_to_duplicate)
+    test_node = tasks.children[1].children[0]
+    test = emacs_task_prio_tests.test_update_scheduled(test_node)
 
     org_parse_util.nodes_to_file(tasks, TASKS_FILE_OUT)
 

@@ -1,4 +1,7 @@
 import datetime
+
+import orgparse.date
+
 from PyOrgMode.PyOrgMode import PyOrgMode
 import orgparse.date as orgd
 import re
@@ -7,9 +10,34 @@ import org_parse_util
 TASKS_FILE_IN = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test.org"
 
 
+def test_update_scheduled(node):
+    """ working """
+
+    new_orgdate = '<2006-11-01 Wed 19:15>'
+
+    root = org_parse_util.update_date_kwd(node, 'SCHEDULED', new_orgdate)
+
+    snode = None
+    for snode in root[1:]:
+        if snode.linenumber == node.linenumber:
+            break
+    
+    new_node = snode  # snode is search node not an insult
+
+    if not snode:
+        return False
+    else:
+        if new_node.scheduled.__str__() == new_orgdate:
+            return True
+        else:
+            return False
+
+
 def test_duplicate(nodes, node_to_duplicate):
     """ check if node is actually duplicated
     currently fails because node count returns 0 in second count, not sure why
+
+    can probably fix using line number comparison? (should probably fix)
     """
 
     node_count_pre = count_nodes_in_tree(nodes, node_to_duplicate)
