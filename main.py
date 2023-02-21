@@ -1,10 +1,12 @@
 import orgparse
 import orgparse.node
-import org_parse_util
-import emacs_task_prio_tests
+from score import score_tasks
+from org_parse_util import duplicate_node, del_node_property, update_node_line, get_active_orgdates, nodes_to_file
+from schedule import schedule_tasks
+from node_util import generate_uid, find_node_idx, is_node_task
 
-TASKS_FILE_IN = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test.org"
-TASKS_FILE_OUT = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test_out.org"
+TASKS_FILE_IN = "C:/Users/Daniel/emacs/org/Tasks.org"
+TASKS_FILE_OUT = "C:/Users/Daniel/emacs/org/Tasks_test_out.org"
 
 
 def read_tasks(tasks_file_path):
@@ -13,34 +15,55 @@ def read_tasks(tasks_file_path):
     return tasks
 
 
-def score_task(node):
-    """ score and return node with score property added """
+def flatten_root(root):
+    """ return root where each entry only has a single active date other than deadline if present
+        - get active org_dates
+        - store heading, created date and times to duplicate in dictionary, cant duplicate (modify root) while iterating root!
+            - i think heading and created can be used to identify uniquely
+        - duplicate all marked nodes the amount of times needed
+        - profit
 
-    return node
-
-
-def pre_order_traversal(node):
-    """ root -> left node -> right node
-
-    node must have children property
-    node must have heading property
+    this thing is a real mess but it works
     """
-    # score node
-    print(f'scoring: {node.heading}')
-    parent_traversal(node)  # get properties of parents
+    # determine to be flattened
+    to_flatten = dict()
+    for node in root[1:]:  # start at one to exclude root
+        if is_node_task(node):
+            node_active_orgdates = get_active_orgdates(node, scheduled=True)  # not including deadline
 
-    for child in node.children:
-        pre_order_traversal(child)
+            date_count = len(node_active_orgdates)
+            if date_count > 1:  # multiple active dates
+                # minus one because one already exists
+                to_flatten[generate_uid(node)] = date_count - 1
 
-    return node
+    # forgive me for my tree navigating sins lord
+    # duplicate nodes as marked by to_duplicate
+    for key in to_flatten.keys():
 
+        times_to_duplicate = to_flatten[key]
 
-def parent_traversal(node):
-    """ trace branch back to root via parents """
+        node_idx = find_node_idx(key, root)
+        node_to_flatten = root[node_idx]
+        node_active_orgdates = get_active_orgdates(node_to_flatten, scheduled=True)
 
-    while node != node.root:
-        node = node.parent
-        print(f'parent: {node.heading}')
+        # duplicate all at once otherwise we duplicate a modified version of original node
+        while times_to_duplicate > 0:
+            root = duplicate_node(root, node_to_flatten)
+            times_to_duplicate -= 1
+
+        # delete until single active date for each node
+        for i, keep_date in enumerate(node_active_orgdates):
+            node_to_modify_idx = node_idx + i
+            node_to_modify = root[node_to_modify_idx]
+
+            for del_date in node_active_orgdates:
+                if del_date != keep_date:
+                    if del_date == node_to_modify.scheduled:
+                        root = del_node_property(node_to_modify, 'scheduled')
+                    else:
+                        root = update_node_line(node_to_modify, del_date.__str__(), "")
+
+    return root
 
 
 def main():
@@ -52,12 +75,15 @@ def main():
                 - if they need be accomplished prior to the meeting they should have effort assigned
     """
     tasks = orgparse.load(TASKS_FILE_IN)
-    # test = pre_order_traversal(tasks.root)
+    flattened_tasks = flatten_root(tasks)
+    # TODO after flatten check for efforts in scheduled and set to effort if not effort already
+    scored_tasks = score_tasks(flattened_tasks)
 
-    test_node = tasks.children[1].children[0]
-    test = emacs_task_prio_tests.test_update_scheduled(test_node)
+    tasks = schedule_tasks(tasks)
 
-    org_parse_util.nodes_to_file(tasks, TASKS_FILE_OUT)
+    # tests = emacs_task_prio_tests.standard_tests(tasks)
+
+    nodes_to_file(tasks, TASKS_FILE_OUT)
 
     print()
 

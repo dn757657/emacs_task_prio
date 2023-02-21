@@ -10,12 +10,24 @@ import org_parse_util
 TASKS_FILE_IN = "C:/Users/Daniel/emacs_x29hm-v4p65/org/Tasks_test.org"
 
 
-def test_update_scheduled(node):
+def standard_tests(nodes):
+    """ standard tests for org parse util layer """
+
+    test_results = dict()
+    test_node = nodes.children[1].children[0]
+    test_orgdate = orgparse.date.OrgDate.list_from_str('<2006-11-01 Wed 19:15>')[0]
+
+    test_results['update_scheduled'] = test_set_node_prop(test_node, 'scheduled', test_orgdate.__str__())
+    test_results['update_deadline'] = test_set_node_prop(test_node, 'deadline', test_orgdate.__str__())
+    test_results['update_existing_property'] = test_set_node_prop(test_node, 'effort', '5')
+
+    return test_results
+
+
+def test_set_node_prop(node, prop, new_val):
     """ working """
 
-    new_orgdate = '<2006-11-01 Wed 19:15>'
-
-    root = org_parse_util.update_date_kwd(node, 'SCHEDULED', new_orgdate)
+    root = org_parse_util.set_node_property(node, prop, new_val)
 
     snode = None
     for snode in root[1:]:
@@ -27,8 +39,18 @@ def test_update_scheduled(node):
     if not snode:
         return False
     else:
-        if new_node.scheduled.__str__() == new_orgdate:
-            return True
+        if hasattr(new_node, prop):
+            if getattr(new_node, prop).__str__() == new_val:
+                return True
+        if prop.lower() in [x.lower() for x in new_node.properties.keys()]:
+            for i, cprop in enumerate(new_node.properties.keys()):
+                if cprop.lower() == prop.lower():
+                    break
+            actual_prop = list(new_node.properties.keys())[i]
+
+            # remember that update only has str as intake as were updating root lines!
+            if str(new_node.properties[actual_prop]) == new_val:
+                return True
         else:
             return False
 
