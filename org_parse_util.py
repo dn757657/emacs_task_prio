@@ -1,34 +1,5 @@
 import orgparse
 import orgparse.node
-from util import ensure_datetime
-
-
-def get_active_orgdates(node, scheduled=None, deadline=None):
-    """ get all scheduled in node, ignores scheduled and deadline by defualt babyyyyyy
-
-    really just an orgparse.get_timestamps func with defaults? elim?
-
-    can include scheudled or deadline since not normally included by get_timestamps
-    """
-
-    all_active_orgdates = node.get_timestamps(active=True,
-                                              inactive=False,
-                                              range=True,
-                                              point=True)
-
-    if scheduled:
-        if hasattr(node, 'scheduled'):
-            # node.scheduled is never none so we need to check start
-            if node.scheduled.start:
-                all_active_orgdates += [node.scheduled]  # only adding scheduled
-
-    if deadline:
-        if hasattr(node, 'deadline'):
-            # node.deadline is never none so we need to check start and end? not so sure if both needed
-            if node.deadline.start or node.deadline.end:
-                all_active_orgdates += [node.deadline]
-
-    return all_active_orgdates
 
 
 def dump_nodes(root):
@@ -94,12 +65,12 @@ def locate_node_in_root(root_lines, node_lines, node_line_number):
     node_start_location = i  # inclusive (index is first line)
     node_end_location = node_start_location + len(node_lines) - 1  # inclusive (index is last line)
 
-    # debugging
-    found = root_lines[node_start_location][0]
-    seeking = node_lines[0][0]
-
-    if root_lines[node_start_location][0] != node_lines[0][0]:
-        print()
+    # # debugging
+    # found = root_lines[node_start_location][0]
+    # seeking = node_lines[0][0]
+    #
+    # if root_lines[node_start_location][0] != node_lines[0][0]:
+    #     print()
 
     return node_start_location, node_end_location
 
@@ -355,25 +326,6 @@ def lines_2_nodes(lines):
     nodes = orgparse.loads(flatted_str)
 
     return nodes
-
-
-def orgdate_2_dt(dates):
-    """ get datetime object from orgdate """
-
-    dates_dt = []
-
-    if not isinstance(dates, list):
-        dates = [dates]
-
-    # pull date times objects out of orgdate objects from ancestral
-    for date in dates:
-        # start is preferred because it is soner (worst case) for scoring
-        if date.start:
-            dates_dt.append(ensure_datetime(date.start))
-        elif date.end:
-            dates_dt.append(ensure_datetime(date.end))
-
-    return dates_dt
 
 
 def flatten(lst):

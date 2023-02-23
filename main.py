@@ -1,9 +1,8 @@
 import orgparse
 import orgparse.node
-from score import score_tasks
-from org_parse_util import duplicate_node, del_node_property, update_node_line, get_active_orgdates, nodes_to_file
-from schedule import schedule_tasks
-from node_util import generate_uid, find_node_idx, is_node_task
+from score import score_tasks, show_scores
+from org_parse_util import duplicate_node, del_node_property, update_node_line, nodes_to_file
+from node_util import generate_uid, find_node_idx, is_node_task, get_active_orgdates, get_effort, get_property_key
 
 TASKS_FILE_IN = "C:/Users/Daniel/emacs/org/Tasks.org"
 TASKS_FILE_OUT = "C:/Users/Daniel/emacs/org/Tasks_test_out.org"
@@ -66,6 +65,25 @@ def flatten_root(root):
     return root
 
 
+def prep_nodes_for_analysis(root):
+    """ sanitize and prepare nodes for scheduling or other analysis """
+
+    # flatten node tree such that each node has single scheduled/active date
+    prepped_nodes = flatten_root(root)
+
+    # extract/asign node efforts
+    for node in prepped_nodes[1:]:
+        effort = get_effort(node)
+
+        if effort:
+            effort_key = get_property_key('effort', node)  # find effort key in properties
+            node_effort = node.get_property(effort_key)  # get current effort if present
+            if node_effort != effort:  # if effort found is different set to effort found
+                node.properties[effort_key] = effort
+
+    return prepped_nodes
+
+
 def main():
     """ rules:
         1)  rangelist children only have effort if they need to be done prior to rangelist item
@@ -75,12 +93,10 @@ def main():
                 - if they need be accomplished prior to the meeting they should have effort assigned
     """
     tasks = orgparse.load(TASKS_FILE_IN)
-    flattened_tasks = flatten_root(tasks)
-    # TODO after flatten check for efforts in scheduled and set to effort if not effort already
-    scored_tasks = score_tasks(flattened_tasks)
+    prepped_tasks = prep_nodes_for_analysis(tasks)
+    scores = score_tasks(prepped_tasks)
 
-    tasks = schedule_tasks(tasks)
-
+    # tasks = schedule_tasks(tasks)
     # tests = emacs_task_prio_tests.standard_tests(tasks)
 
     nodes_to_file(tasks, TASKS_FILE_OUT)
